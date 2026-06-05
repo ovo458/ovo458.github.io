@@ -8,7 +8,7 @@
         body {
             margin: 0;
             overflow: hidden;
-            background-color: #111116;
+            background-color: #2c3e50;
             font-family: 'PingFang TC', 'Microsoft JhengHei', sans-serif;
             user-select: none;
             touch-action: none;
@@ -309,6 +309,52 @@
             z-index: 2;
             transition: background 0.1s ease;
         }
+        #admin-menu {
+            display: none;
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(20, 20, 30, 0.95);
+            border: 3px dashed #e74c3c;
+            border-radius: 12px;
+            padding: 20px;
+            color: #ffffff;
+            z-index: 300;
+            width: 280px;
+            box-shadow: 0 0 30px rgba(231, 76, 60, 0.5);
+            text-align: center;
+        }
+        #admin-menu h2 {
+            margin: 0 0 15px 0;
+            color: #e74c3c;
+            font-size: 20px;
+            letter-spacing: 1px;
+        }
+        .admin-btn {
+            width: 100%;
+            padding: 10px;
+            margin: 8px 0;
+            border-radius: 5px;
+            border: 1px solid #e74c3c;
+            background: #2c3e50;
+            color: white;
+            font-weight: bold;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s;
+        }
+        .admin-btn:hover {
+            background: #e74c3c;
+        }
+        .admin-btn.active {
+            background: #2ecc71;
+            border-color: #2ecc71;
+        }
+        #close-admin {
+            background: #7f8c8d;
+            border: none;
+            margin-top: 10px;
+        }
     </style>
     <script src="https://unpkg.com/three@0.128.0/build/three.min.js"></script>
 </head>
@@ -317,7 +363,6 @@
     <div id="hit-overlay"></div>
 
     <div id="auth-screen">
-        <!-- 登入介面區塊 -->
         <div class="auth-box" id="auth-login">
             <h2>玩家登入</h2>
             <input type="text" id="login-user" placeholder="輸入帳號">
@@ -325,7 +370,6 @@
             <button onclick="handleAuth('login')">進入戰場</button>
             <div class="auth-toggle" onclick="toggleAuth(false)">沒有帳號？立即註冊</div>
         </div>
-        <!-- 註冊介面區塊 -->
         <div class="auth-box" id="auth-register" style="display:none;">
             <h2>新兵註冊</h2>
             <input type="text" id="reg-user" placeholder="創建新帳號 (最多16字)">
@@ -333,6 +377,14 @@
             <button onclick="handleAuth('register')">完成註冊</button>
             <div class="auth-toggle" onclick="toggleAuth(true)">已有帳號？返回登入</div>
         </div>
+    </div>
+
+    <div id="admin-menu">
+        <h2>🛠️ 核心管理員外掛菜單</h2>
+        <button class="admin-btn" onclick="adminAddMoney()">💰 瞬間增加 10000 金幣</button>
+        <button class="admin-btn" id="adm-god-btn" onclick="adminToggleGodMode()">🛡️ 無敵模式: 關閉</button>
+        <button class="admin-btn" id="adm-fly-btn" onclick="adminToggleFlyMode()">🦅 自由飛行模式: 關閉</button>
+        <button class="admin-btn" id="close-admin" onclick="closeAdminMenu()">關閉選單</button>
     </div>
 
     <div id="ui-container">
@@ -376,6 +428,7 @@
 
     <script>
         let scene, camera, renderer;
+        let ambientLight, dirLight;
         let zombies = [], bullets = [];
         let score = 0, hp = 100, money = 0, isGameOver = false, spawnTimer;
         let gunGroup, muzzleFlash;
@@ -383,7 +436,7 @@
         let cameraAngleX = 0, cameraAngleY = 0; 
         let moveDirection = { x: 0, z: 0 }; 
         
-        let kbState = { w: 0, s: 0, a: 0, d: 0 };
+        let kbState = { w: 0, s: 0, a: 0, d: 0, shift: 0 };
         const mouseSensitivity = 0.0022;
         const playerSpeed = 0.16;
 
@@ -395,9 +448,17 @@
         let walkTime = 0;
 
         let isShopOpen = false;
+        let isAdminOpen = false;
         let isMouseDown = false;
         let lastShotTime = 0;
         let currentAccount = null;
+
+        let godMode = false;
+        let flyMode = false;
+
+        const secretCode = ['ArrowUp', 'ArrowUp', 'ArrowDown', 'ArrowDown', 'ArrowLeft', 'ArrowLeft', 'ArrowRight', 'ArrowRight'];
+        const alternativeCode = ['KeyW', 'KeyW', 'KeyS', 'KeyS', 'KeyA', 'KeyA', 'KeyD', 'KeyD'];
+        let codeProgress = [];
 
         const weapons = {
             glock: { name: "Glock 手槍", cost: 0, dmg: 1, delay: 300, auto: false, parts: [{w:0.04, h:0.04, d:0.18, x:0, y:0, z:-0.09, c:0x2c3e50},{w:0.035, h:0.08, d:0.04, x:0, y:-0.05, z:-0.04, c:0x1e272e}] },
@@ -411,7 +472,6 @@
 
         const isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
 
-        // 【核心修正】完美對齊界面區塊的顯示與隱藏
         function toggleAuth(showLogin) {
             if (showLogin) {
                 document.getElementById('auth-login').style.display = 'block';
@@ -455,19 +515,15 @@
 
                 db[user] = { password: pass, money: 0, owned: ["glock"], current: "glock" };
                 localStorage.setItem('game_accounts', JSON.stringify(db));
-                
-                alert("🎉 註冊成功！系統將為您返回登入畫面，請輸入剛才設定的帳密登入。");
-                
+                alert("🎉 註冊成功！請返回登入畫面。");
                 document.getElementById('reg-user').value = '';
                 document.getElementById('reg-pass').value = '';
                 toggleAuth(true);
-
             } else {
                 if (!db[user] || db[user].password !== pass) { 
-                    alert("登入失敗：帳號不存在或密碼輸入錯誤！"); 
+                    alert("登入失敗：帳號不存在或密碼錯誤！"); 
                     return; 
                 }
-                
                 currentAccount = user;
                 money = db[user].money || 0;
                 ownedWeapons = db[user].owned || ["glock"];
@@ -502,8 +558,8 @@
             if (typeof THREE === 'undefined' || scene) return;
 
             scene = new THREE.Scene();
-            scene.background = new THREE.Color(0x111116);
-            scene.fog = new THREE.FogExp2(0x111116, 0.015);
+            scene.background = new THREE.Color(0xa5b1c2); 
+            scene.fog = null; 
 
             camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 500);
             camera.position.set(0, defaultPlayerHeight, 0); 
@@ -514,19 +570,19 @@
             renderer.setPixelRatio(window.devicePixelRatio || 1); 
             document.body.appendChild(renderer.domElement);
 
-            const gridHelper = new THREE.GridHelper(500, 100, 0x444444, 0x222222);
+            const gridHelper = new THREE.GridHelper(500, 100, 0x7f8c8d, 0x95a5a6);
             scene.add(gridHelper);
 
-            const ambientLight = new THREE.AmbientLight(0xffffff, 0.35);
+            ambientLight = new THREE.AmbientLight(0xffffff, 1.2); 
             scene.add(ambientLight);
-            const dirLight = new THREE.DirectionalLight(0xffffff, 0.5);
-            dirLight.position.set(20, 40, 20);
+            dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
+            dirLight.position.set(30, 60, 30);
             scene.add(dirLight);
 
             for (let i = 0; i < 45; i++) {
                 let h = 12 + Math.random() * 25;
                 const bGeo = new THREE.BoxGeometry(8, h, 8);
-                const bMat = new THREE.MeshStandardMaterial({ color: 0x1e272e, roughness: 0.6 });
+                const bMat = new THREE.MeshStandardMaterial({ color: 0x57606f, roughness: 0.5 });
                 const building = new THREE.Mesh(bGeo, bMat);
                 let angle = Math.random() * Math.PI * 2;
                 let radius = 25 + Math.random() * 80;
@@ -551,6 +607,67 @@
             animate();
         }
 
+        function checkSecretCode(key) {
+            codeProgress.push(key);
+            let targetKey = secretCode[codeProgress.length - 1];
+            let altTargetKey = alternativeCode[codeProgress.length - 1];
+            
+            if (key !== targetKey && key !== altTargetKey) {
+                codeProgress = (key === secretCode[0] || key === alternativeCode[0]) ? [key] : [];
+                return;
+            }
+            if (codeProgress.length === secretCode.length) {
+                codeProgress = [];
+                openAdminMenu();
+            }
+        }
+
+        function openAdminMenu() {
+            isAdminOpen = true;
+            document.getElementById('admin-menu').style.display = 'block';
+            document.exitPointerLock();
+        }
+
+        function closeAdminMenu() {
+            isAdminOpen = false;
+            document.getElementById('admin-menu').style.display = 'none';
+        }
+
+        function adminAddMoney() {
+            money += 10000;
+            document.getElementById('money-val').innerText = money;
+            saveUserData();
+            renderShop();
+        }
+
+        function adminToggleGodMode() {
+            godMode = !godMode;
+            const btn = document.getElementById('adm-god-btn');
+            if (godMode) {
+                btn.innerText = "🛡️ 無敵模式: 開啟中";
+                btn.classList.add('active');
+                hp = 100;
+                document.getElementById('hp-val').innerText = hp;
+            } else {
+                btn.innerText = "🛡️ 無敵模式: 關閉";
+                btn.classList.remove('active');
+            }
+        }
+
+        function adminToggleFlyMode() {
+            flyMode = !flyMode;
+            const btn = document.getElementById('adm-fly-btn');
+            if (flyMode) {
+                btn.innerText = "🦅 自由飛行模式: 開啟中";
+                btn.classList.add('active');
+                isJumping = false; playerVelocityY = 0;
+            } else {
+                btn.innerText = "🦅 自由飛行模式: 關閉";
+                btn.classList.remove('active');
+                if (camera.position.y > defaultPlayerHeight) isJumping = true;
+            }
+        }
+
         function createGunSystem() {
             gunGroup = new THREE.Group();
             muzzleFlash = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 8), new THREE.MeshBasicMaterial({ color: 0xfff200, transparent: true, opacity: 0 }));
@@ -563,25 +680,19 @@
         function updateGunVisual() {
             if (!gunGroup) return;
             for (let i = gunGroup.children.length - 1; i >= 0; i--) {
-                if (gunGroup.children[i] !== muzzleFlash) {
-                    gunGroup.remove(gunGroup.children[i]);
-                }
+                if (gunGroup.children[i] !== muzzleFlash) gunGroup.remove(gunGroup.children[i]);
             }
-
             const w = weapons[currentWeaponKey];
             let maxDepth = 0;
-
             w.parts.forEach(p => {
                 const geo = new THREE.BoxGeometry(p.w, p.h, p.d);
-                const mat = new THREE.MeshStandardMaterial({ color: p.c, roughness: 0.5, metalness: 0.6 });
+                const mat = new THREE.MeshStandardMaterial({ color: p.c, roughness: 0.5 });
                 const mesh = new THREE.Mesh(geo, mat);
                 mesh.position.set(p.x, p.y, p.z);
                 gunGroup.add(mesh);
-
                 let tipPos = Math.abs(p.z) + p.d / 2;
                 if (tipPos > maxDepth) maxDepth = tipPos;
             });
-
             muzzleFlash.position.set(0, 0.01, -maxDepth);
             document.getElementById('weapon-info').innerText = `武器: ${w.name} (${w.auto ? "連發" : "單發"})`;
         }
@@ -589,13 +700,13 @@
         function setupPCControls() {
             const canvasElement = document.body;
             window.addEventListener('click', (e) => {
-                if (!isGameOver && !isShopOpen && currentAccount !== null && e.target.tagName !== 'BUTTON' && e.target.tagName !== 'INPUT') {
+                if (!isGameOver && !isShopOpen && !isAdminOpen && currentAccount !== null && e.target.tagName !== 'BUTTON' && e.target.tagName !== 'INPUT') {
                     document.body.requestPointerLock();
                 }
             });
 
             document.addEventListener('mousemove', (e) => {
-                if (document.pointerLockElement === canvasElement && !isGameOver && !isShopOpen) {
+                if (document.pointerLockElement === canvasElement && !isGameOver && !isShopOpen && !isAdminOpen) {
                     cameraAngleX -= e.movementX * mouseSensitivity;
                     cameraAngleY = Math.max(-Math.PI / 2.3, Math.min(Math.PI / 2.3, cameraAngleY - e.movementY * mouseSensitivity));
                     camera.quaternion.setFromEuler(new THREE.Euler(cameraAngleY, cameraAngleX, 0, 'YXZ'));
@@ -603,16 +714,15 @@
             });
 
             window.addEventListener('keydown', (e) => {
+                checkSecretCode(e.code);
                 if (isGameOver || !currentAccount) return;
                 if (e.code === 'KeyW') kbState.w = 1;
                 if (e.code === 'KeyS') kbState.s = 1;
                 if (e.code === 'KeyA') kbState.a = 1;
                 if (e.code === 'KeyD') kbState.d = 1;
-                if (e.code === 'Space') jump();
-                if (e.code === 'KeyB') {
-                    if (isShopOpen) closeShop();
-                    else openShop();
-                }
+                if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') kbState.shift = 1;
+                if (e.code === 'Space') { if (!flyMode) jump(); }
+                if (e.code === 'KeyB') { if (isShopOpen) closeShop(); else openShop(); }
                 updatePCMoveDirection();
             });
 
@@ -621,19 +731,16 @@
                 if (e.code === 'KeyS') kbState.s = 0;
                 if (e.code === 'KeyA') kbState.a = 0;
                 if (e.code === 'KeyD') kbState.d = 0;
+                if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') kbState.shift = 0;
                 updatePCMoveDirection();
             });
 
             window.addEventListener('mousedown', (e) => {
-                if (document.pointerLockElement === canvasElement && e.button === 0 && !isGameOver && !isShopOpen) {
-                    isMouseDown = true;
-                    triggerShoot();
+                if (document.pointerLockElement === canvasElement && e.button === 0 && !isGameOver && !isShopOpen && !isAdminOpen) {
+                    isMouseDown = true; triggerShoot();
                 }
             });
-
-            window.addEventListener('mouseup', (e) => {
-                if (e.button === 0) isMouseDown = false;
-            });
+            window.addEventListener('mouseup', (e) => { if (e.button === 0) isMouseDown = false; });
         }
 
         function updatePCMoveDirection() {
@@ -649,13 +756,11 @@
                 for (let i = 0; i < e.changedTouches.length; i++) {
                     const t = e.changedTouches[i];
                     if (e.target === shootBtn) { isMouseDown = true; triggerShoot(); continue; }
-                    if (e.target === jumpBtn) { jump(); continue; }
-                    
+                    if (e.target === jumpBtn) { if (!flyMode) jump(); continue; }
                     if (t.clientX < window.innerWidth / 2 && moveTouchId === null) {
-                        moveTouchId = t.identifier; moveStart.x = t.clientX; moveStart.y = t.clientY;
-                        continue;
+                        moveTouchId = t.identifier; moveStart.x = t.clientX; moveStart.y = t.clientY; continue;
                     }
-                    if (t.clientX >= window.innerWidth / 2 && lookTouchId === null && !isShopOpen) {
+                    if (t.clientX >= window.innerWidth / 2 && lookTouchId === null && !isShopOpen && !isAdminOpen) {
                         lookTouchId = t.identifier; lookLast.x = t.clientX; lookLast.y = t.clientY;
                     }
                 }
@@ -693,39 +798,19 @@
             });
         }
 
-        function openShop(e) {
-            if(e) e.stopPropagation();
-            isShopOpen = true;
-            document.getElementById('shop-ui').style.display = 'block';
-            document.exitPointerLock();
-        }
-
-        function closeShop(e) {
-            if(e) e.stopPropagation();
-            isShopOpen = false;
-            document.getElementById('shop-ui').style.display = 'none';
-        }
+        function openShop(e) { if(e) e.stopPropagation(); isShopOpen = true; document.getElementById('shop-ui').style.display = 'block'; document.exitPointerLock(); }
+        function closeShop(e) { if(e) e.stopPropagation(); isShopOpen = false; document.getElementById('shop-ui').style.display = 'none'; }
 
         function renderShop() {
-            const listContainer = document.getElementById('shop-items-list');
-            listContainer.innerHTML = '';
-            
+            const listContainer = document.getElementById('shop-items-list'); listContainer.innerHTML = '';
             Object.keys(weapons).forEach(key => {
-                const w = weapons[key];
-                const itemDiv = document.createElement('div');
-                itemDiv.className = 'shop-item';
-                
-                let btnText = ownedWeapons.includes(key) ? "裝備" : `$${w.cost}`;
-                let btnClass = "buy-btn";
-                if (currentWeaponKey === key) {
-                    btnText = "使用中";
-                    btnClass = "buy-btn owned";
-                }
-
+                const w = weapons[key]; const itemDiv = document.createElement('div'); itemDiv.className = 'shop-item';
+                let btnText = ownedWeapons.includes(key) ? "裝備" : `$${w.cost}`; let btnClass = "buy-btn";
+                if (currentWeaponKey === key) { btnText = "使用中"; btnClass = "buy-btn owned"; }
                 itemDiv.innerHTML = `
                     <div class="shop-item-info">
                         <span class="shop-item-title">${w.name}</span>
-                        <span class="shop-item-cost">威力: ${w.dmg} | 射速延遲: ${w.delay}ms</span>
+                        <span class="shop-item-cost">威力: ${w.dmg} | 延遲: ${w.delay}ms</span>
                     </div>
                     <button class="${btnClass}" onclick="buyOrEquip('${key}', event)">${btnText}</button>
                 `;
@@ -734,85 +819,53 @@
         }
 
         function buyOrEquip(key, e) {
-            e.stopPropagation();
-            const w = weapons[key];
+            e.stopPropagation(); const w = weapons[key];
             if (ownedWeapons.includes(key)) {
-                currentWeaponKey = key;
-                updateGunVisual();
-                renderShop();
-                saveUserData();
+                currentWeaponKey = key; updateGunVisual(); renderShop(); saveUserData();
             } else {
                 if (money >= w.cost) {
-                    money -= w.cost;
-                    document.getElementById('money-val').innerText = money;
-                    ownedWeapons.push(key);
-                    currentWeaponKey = key;
-                    updateGunVisual();
-                    renderShop();
-                    saveUserData();
-                } else {
-                    alert("金幣不足！快去打殭屍賺錢！");
-                }
+                    money -= w.cost; document.getElementById('money-val').innerText = money;
+                    ownedWeapons.push(key); currentWeaponKey = key; updateGunVisual(); renderShop(); saveUserData();
+                } else { alert("金幣不足！"); }
             }
         }
 
-        function jump() { if (!isJumping && !isGameOver && !isShopOpen) { isJumping = true; playerVelocityY = jumpStrength; } }
+        function jump() { if (!isJumping && !isGameOver && !isShopOpen && !isAdminOpen) { isJumping = true; playerVelocityY = jumpStrength; } }
 
         function triggerShoot() {
-            if (isGameOver || isShopOpen || !currentAccount) return;
-            let now = performance.now();
-            let w = weapons[currentWeaponKey];
-            if (now - lastShotTime >= w.delay) {
-                shoot(w);
-                lastShotTime = now;
-            }
+            if (isGameOver || isShopOpen || isAdminOpen || !currentAccount) return;
+            let now = performance.now(); let w = weapons[currentWeaponKey];
+            if (now - lastShotTime >= w.delay) { shoot(w); lastShotTime = now; }
         }
 
         function shoot(w) {
-            muzzleFlash.material.opacity = 1; 
-            gunGroup.position.z = -0.36; 
+            muzzleFlash.material.opacity = 1; gunGroup.position.z = -0.36; 
             setTimeout(() => { muzzleFlash.material.opacity = 0; gunGroup.position.z = -0.4; }, 40);
-
-            const gunWorldPos = new THREE.Vector3(); 
-            muzzleFlash.getWorldPosition(gunWorldPos);
-            const baseDir = new THREE.Vector3(); 
-            camera.getWorldDirection(baseDir);
-
-            if (currentWeaponKey === 'awp') {
-                createBulletMesh(gunWorldPos, baseDir, 0.001, w.dmg);
-            } else {
-                let spread = currentWeaponKey === 'm134' ? 0.04 : 0.015;
-                createBulletMesh(gunWorldPos, baseDir, spread, w.dmg);
-            }
+            const gunWorldPos = new THREE.Vector3(); muzzleFlash.getWorldPosition(gunWorldPos);
+            const baseDir = new THREE.Vector3(); camera.getWorldDirection(baseDir);
+            let spread = currentWeaponKey === 'awp' ? 0.001 : (currentWeaponKey === 'm134' ? 0.04 : 0.015);
+            createBulletMesh(gunWorldPos, baseDir, spread, w.dmg);
         }
 
         function createBulletMesh(pos, baseDir, spread, dmg) {
             const bullet = new THREE.Mesh(new THREE.SphereGeometry(0.06, 6, 6), new THREE.MeshBasicMaterial({ color: 0xfff200 }));
-            bullet.position.copy(pos);
-            let dir = baseDir.clone();
-            dir.x += (Math.random() - 0.5) * spread;
-            dir.y += (Math.random() - 0.5) * spread;
-            dir.z += (Math.random() - 0.5) * spread;
-            dir.normalize();
-            bullet.userData = { dir: dir, dmg: dmg, born: performance.now() };
+            bullet.position.copy(pos); let dir = baseDir.clone();
+            dir.x += (Math.random() - 0.5) * spread; dir.y += (Math.random() - 0.5) * spread; dir.z += (Math.random() - 0.5) * spread;
+            dir.normalize(); bullet.userData = { dir: dir, dmg: dmg, born: performance.now() };
             scene.add(bullet); bullets.push(bullet);
         }
 
         function spawnZombie() {
-            if (isGameOver || isShopOpen || !currentAccount) return;
+            if (isGameOver || isShopOpen || isAdminOpen || !currentAccount) return;
             const zombieGroup = new THREE.Group();
-            
             let hpMax = 1 + Math.floor(score / 8) * 0.6;
-            
             const body = new THREE.Mesh(new THREE.BoxGeometry(0.8, 1.2, 0.6), new THREE.MeshStandardMaterial({ color: 0x445433, roughness: 0.8 }));
             body.position.y = 0.6; zombieGroup.add(body);
             const head = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.45, 0.45), new THREE.MeshStandardMaterial({ color: 0x10ac84, roughness: 0.7 }));
             head.position.y = 1.25; zombieGroup.add(head);
-
             let angle = Math.random() * Math.PI * 2; let distance = 30 + Math.random() * 15;
             zombieGroup.position.set(camera.position.x + Math.cos(angle)*distance, 0, camera.position.z + Math.sin(angle)*distance);
             zombieGroup.userData = { hp: hpMax };
-            
             scene.add(zombieGroup); zombies.push(zombieGroup);
         }
 
@@ -820,19 +873,25 @@
             requestAnimationFrame(animate);
             if (isGameOver || !currentAccount) return;
 
-            if (weapons[currentWeaponKey].auto && isMouseDown) {
-                triggerShoot();
+            if (godMode) { hp = 100; document.getElementById('hp-val').innerText = hp; }
+            if (weapons[currentWeaponKey].auto && isMouseDown) triggerShoot();
+
+            if (flyMode && document.pointerLockElement) {
+                if (kbState.w && cameraAngleY > 0.3) camera.position.y += 0.08;
+                if (kbState.w && cameraAngleY < -0.3) camera.position.y -= 0.08;
+            } else if (!flyMode) {
+                if (isJumping) {
+                    playerVelocityY += gravity; camera.position.y += playerVelocityY;
+                    if (camera.position.y <= defaultPlayerHeight) { camera.position.y = defaultPlayerHeight; isJumping = false; playerVelocityY = 0; }
+                }
             }
 
-            if (isJumping) {
-                playerVelocityY += gravity; camera.position.y += playerVelocityY;
-                if (camera.position.y <= defaultPlayerHeight) { camera.position.y = defaultPlayerHeight; isJumping = false; playerVelocityY = 0; }
-            }
-
-            if ((moveDirection.x !== 0 || moveDirection.z !== 0) && !isShopOpen) {
-                const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion); forward.y = 0; forward.normalize();
-                const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion); right.y = 0; right.normalize();
-                
+            if ((moveDirection.x !== 0 || moveDirection.z !== 0) && !isShopOpen && !isAdminOpen) {
+                const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion); 
+                if(!flyMode) forward.y = 0;
+                forward.normalize();
+                const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion); 
+                right.y = 0; right.normalize();
                 let mag = Math.sqrt(moveDirection.x*moveDirection.x + moveDirection.z*moveDirection.z);
                 camera.position.addScaledVector(forward, -(moveDirection.z / mag) * playerSpeed * Math.min(1, mag));
                 camera.position.addScaledVector(right, (moveDirection.x / mag) * playerSpeed * Math.min(1, mag));
@@ -846,19 +905,13 @@
             for (let i = bullets.length - 1; i >= 0; i--) {
                 const b = bullets[i]; b.position.addScaledVector(b.userData.dir, 1.6);
                 if (now - b.userData.born > 1200) { scene.remove(b); bullets.splice(i, 1); continue; }
-                
                 for (let j = zombies.length - 1; j >= 0; j--) {
                     const z = zombies[j];
-                    if (b.position.distanceTo(z.position.clone().setY(0.8)) < 1.2) {
-                        z.userData.hp -= b.userData.dmg;
-                        scene.remove(b); bullets.splice(i, 1);
-                        
+                    if (b.position.distanceTo(z.position.clone().setY(z.position.y + 0.8)) < 1.2) {
+                        z.userData.hp -= b.userData.dmg; scene.remove(b); bullets.splice(i, 1);
                         if (z.userData.hp <= 0) {
-                            scene.remove(z); zombies.splice(j, 1);
-                            score++; 
-                            money += 15 + Math.floor(Math.random() * 16);
-                            document.getElementById('score-val').innerText = score;
-                            document.getElementById('money-val').innerText = money;
+                            scene.remove(z); zombies.splice(j, 1); score++; money += 15 + Math.floor(Math.random() * 16);
+                            document.getElementById('score-val').innerText = score; document.getElementById('money-val').innerText = money;
                             saveUserData();
                         }
                         break;
@@ -867,32 +920,24 @@
             }
 
             for (let j = zombies.length - 1; j >= 0; j--) {
-                const z = zombies[j];
-                const dir = new THREE.Vector3().copy(camera.position).sub(z.position); dir.y = 0; dir.normalize();
-                if (!isShopOpen) z.position.addScaledVector(dir, 0.075);
+                const z = zombies[j]; const dir = new THREE.Vector3().copy(camera.position).sub(z.position); dir.y = 0; dir.normalize();
+                if (!isShopOpen && !isAdminOpen) z.position.addScaledVector(dir, 0.075);
                 z.lookAt(camera.position.x, z.position.y, camera.position.z);
                 
-                if (z.position.distanceTo(new THREE.Vector3(camera.position.x, 0, camera.position.z)) < 1.8) {
-                    scene.remove(z); zombies.splice(j, 1); hp -= 25;
-                    document.getElementById('hp-val').innerText = Math.max(0, hp);
-                    
-                    const overlay = document.getElementById('hit-overlay');
-                    overlay.style.backgroundColor = 'rgba(231, 76, 60, 0.4)';
-                    setTimeout(() => overlay.style.backgroundColor = 'rgba(231, 76, 60, 0)', 100);
-
-                    if (hp <= 0) endGame();
+                if (z.position.distanceTo(new THREE.Vector3(camera.position.x, z.position.y, camera.position.z)) < 1.8) {
+                    scene.remove(z); zombies.splice(j, 1);
+                    if (!godMode) {
+                        hp -= 25; document.getElementById('hp-val').innerText = Math.max(0, hp);
+                        const overlay = document.getElementById('hit-overlay'); overlay.style.backgroundColor = 'rgba(231, 76, 60, 0.4)';
+                        setTimeout(() => overlay.style.backgroundColor = 'rgba(231, 76, 60, 0)', 100);
+                        if (hp <= 0) endGame();
+                    }
                 }
             }
-            if (renderer && scene && camera) {
-                renderer.render(scene, camera);
-            }
+            if (renderer && scene && camera) renderer.render(scene, camera);
         }
 
-        function getLeaderboard() { 
-            const data = localStorage.getItem('zombie_city_scores'); 
-            return data ? JSON.parse(data) : [{name: "老兵", score: 20}, {name: "倖存者", score: 5}]; 
-        }
-
+        function getLeaderboard() { const data = localStorage.getItem('zombie_city_scores'); return data ? JSON.parse(data) : [{name: "老兵", score: 20}, {name: "倖存者", score: 5}]; }
         function updateLeaderboardUI() {
             const container = document.getElementById('leaderboard-list'); if(!container) return; container.innerHTML = '';
             getLeaderboard().forEach((item, index) => {
@@ -902,43 +947,19 @@
         }
 
         function endGame() {
-            isGameOver = true; 
-            document.getElementById('game-over').style.display = 'block'; 
-            clearInterval(spawnTimer);
-            document.exitPointerLock();
-            saveUserData();
-            
-            let list = getLeaderboard();
-            list.push({ name: currentAccount, score: score });
-            list.sort((a, b) => b.score - a.score);
-            list = list.slice(0, 3);
-            localStorage.setItem('zombie_city_scores', JSON.stringify(list));
-            updateLeaderboardUI();
+            isGameOver = true; document.getElementById('game-over').style.display = 'block'; clearInterval(spawnTimer); document.exitPointerLock(); saveUserData();
+            let list = getLeaderboard(); list.push({ name: currentAccount, score: score }); list.sort((a, b) => b.score - a.score);
+            list = list.slice(0, 3); localStorage.setItem('zombie_city_scores', JSON.stringify(list)); updateLeaderboardUI();
         }
 
         function resetGame() { 
-            zombies.forEach(z => scene.remove(z));
-            bullets.forEach(b => scene.remove(b));
-            zombies = []; bullets = [];
-            camera.position.set(0, defaultPlayerHeight, 0);
-            cameraAngleX = 0; cameraAngleY = 0;
-            camera.quaternion.set(0, 0, 0, 1);
-            document.getElementById('game-over').style.display = 'none'; 
-            hp = 100; score = 0; 
-            document.getElementById('hp-val').innerText = hp; 
-            document.getElementById('score-val').innerText = score; 
-            isGameOver = false; 
-            clearInterval(spawnTimer);
-            spawnTimer = setInterval(spawnZombie, 1500);
+            zombies.forEach(z => scene.remove(z)); bullets.forEach(b => scene.remove(b)); zombies = []; bullets = [];
+            camera.position.set(0, defaultPlayerHeight, 0); cameraAngleX = 0; cameraAngleY = 0; camera.quaternion.set(0, 0, 0, 1);
+            document.getElementById('game-over').style.display = 'none'; hp = 100; score = 0; 
+            document.getElementById('hp-val').innerText = hp; document.getElementById('score-val').innerText = score; 
+            isGameOver = false; clearInterval(spawnTimer); spawnTimer = setInterval(spawnZombie, 1500);
         }
-        
-        function onWindowResize() { 
-            if(camera && renderer) { 
-                camera.aspect = window.innerWidth / window.innerHeight; 
-                camera.updateProjectionMatrix(); 
-                renderer.setSize(window.innerWidth, window.innerHeight); 
-            } 
-        }
+        function onWindowResize() { if(camera && renderer) { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); } }
     </script>
 </body>
 </html>
