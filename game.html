@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>3D 城市殭屍大戰 - 電腦滑鼠視角修正版</title>
+    <title>3D 城市殭屍大戰</title>
     <style>
         body {
             margin: 0;
@@ -11,6 +11,7 @@
             background-color: #d35400;
             font-family: 'PingFang TC', 'Microsoft JhengHei', sans-serif;
             user-select: none;
+            touch-action: none;
         }
         #ui-container {
             position: absolute;
@@ -79,8 +80,59 @@
             border-radius: 50%;
             transform: translate(-50%, -50%);
         }
-        /* 電腦版提示 */
+        
+        /* --- 手機專用 UI 元素 (預設隱藏，由 JS 判斷啟動) --- */
+        #mobile-controls {
+            display: none;
+        }
+        #move-zone {
+            position: absolute;
+            bottom: 30px;
+            left: 30px;
+            width: 110px;
+            height: 110px;
+            background: rgba(255, 255, 255, 0.25);
+            border: 2px solid rgba(255, 255, 255, 0.6);
+            border-radius: 50%;
+            z-index: 50;
+        }
+        #joystick {
+            position: absolute;
+            top: 50%; left: 50%;
+            width: 45px; height: 45px;
+            background: rgba(255, 255, 255, 0.9);
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+        }
+        #action-container {
+            position: absolute;
+            bottom: 30px;
+            right: 30px;
+            display: flex;
+            align-items: flex-end;
+            gap: 15px;
+            z-index: 60;
+        }
+        #jump-btn {
+            width: 70px; height: 70px;
+            background: rgba(44, 62, 80, 0.8);
+            border: 2px solid #ffffff;
+            border-radius: 50%;
+            color: white; font-weight: bold; font-size: 16px;
+            display: flex; justify-content: center; align-items: center;
+        }
+        #shoot-btn {
+            width: 95px; height: 95px;
+            background: linear-gradient(135deg, #2ecc71, #27ae60);
+            border: 3px solid #ffffff;
+            border-radius: 50%;
+            display: flex; justify-content: center; align-items: center;
+            color: white; font-weight: bold; font-size: 20px;
+        }
+
+        /* 電腦提示 */
         #pc-hint {
+            display: none;
             position: absolute;
             bottom: 20px;
             left: 50%;
@@ -92,7 +144,6 @@
             font-size: 14px;
             pointer-events: none;
             z-index: 10;
-            text-align: center;
         }
         #game-over {
             display: none;
@@ -132,7 +183,15 @@
     </div>
 
     <div id="crosshair"></div>
-    <div id="pc-hint">點擊畫面鎖定滑鼠 即可轉動視角 (ESC退出)</div>
+    <div id="pc-hint">點擊畫面鎖定滑鼠即可轉動視角 (WASD移動/ESC退出)</div>
+
+    <div id="mobile-controls">
+        <div id="move-zone"><div id="joystick"></div></div>
+        <div id="action-container">
+            <div id="jump-btn">JUMP</div>
+            <div id="shoot-btn">發射</div>
+        </div>
+    </div>
 
     <div id="game-over">
         腦袋被吃掉了...
@@ -149,13 +208,18 @@
         let score = 0, hp = 100, isGameOver = false, spawnTimer;
         let gunGroup, muzzleFlash;
         
-        // 視角控制變數
+        // 核心互通操作變數
         let cameraAngleX = 0, cameraAngleY = 0; 
-        const mouseSensitivity = 0.0025; // 滑鼠靈敏度
-
-        // 移動控制變數
+        let moveDirection = { x: 0, z: 0 }; // 核心：手機與電腦共用此移動訊號
+        
+        // 電腦端控制標記
+        let kbState = { w: 0, s: 0, a: 0, d: 0 };
+        const mouseSensitivity = 0.0025;
         const playerSpeed = 0.16;
-        let keyState = { w: false, s: false, a: false, d: false };
+
+        // 手機端控制標記
+        let moveTouchId = null, moveStart = { x: 0, y: 0 };
+        let lookTouchId = null, lookLast = { x: 0, y: 0 };
 
         let playerVelocityY = 0, isJumping = false;
         const gravity = -0.012, jumpStrength = 0.26, defaultPlayerHeight = 1.6;
@@ -164,9 +228,12 @@
         let playerName = localStorage.getItem('zombie_player_name') || '無名英雄';
         document.getElementById('current-name-val').innerText = playerName;
 
+        // 偵測是否為行動裝置
+        const isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
+
         function changePlayerName(e) {
-            e.stopPropagation(); // 防止點擊按鈕時觸發滑鼠鎖定
-            const newName = prompt("請輸入你的英勇名稱 (最多 8 個字)：", playerName);
+            e.stopPropagation();
+            const newName = prompt("請輸入你的名稱 (最多 8 個字)：", playerName);
             if (newName && newName.trim() !== "") {
                 playerName = newName.trim().substring(0, 8);
                 localStorage.setItem('zombie_player_name', playerName);
@@ -198,14 +265,13 @@
             gridHelper.position.y = 0.01; 
             scene.add(gridHelper);
 
-            // 正前方大樓
+            // 建立測試大樓
             const tGeo = new THREE.BoxGeometry(8, 25, 8);
             const tMat = new THREE.MeshBasicMaterial({ color: 0x2980b9 });
             const testBuilding = new THREE.Mesh(tGeo, tMat);
             testBuilding.position.set(0, 12.5, -12);
             scene.add(testBuilding);
 
-            // 隨機大樓
             for (let i = 0; i < 30; i++) {
                 let h = 15 + Math.random() * 15;
                 const bGeo = new THREE.BoxGeometry(6, h, 6);
@@ -218,7 +284,16 @@
             }
 
             createGun();
-            setupPCControls(); // 啟用電腦專用操作
+            
+            // 【核心互通切換】根據裝置載入對應的操作
+            if (isMobile) {
+                document.getElementById('mobile-controls').style.display = 'block';
+                setupMobileControls();
+            } else {
+                document.getElementById('pc-hint').style.display = 'block';
+                setupPCControls();
+            }
+
             updateLeaderboardUI();
             window.addEventListener('resize', onWindowResize);
             spawnTimer = setInterval(spawnZombie, 1800);
@@ -226,10 +301,8 @@
 
         function createGun() {
             gunGroup = new THREE.Group();
-            
             const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.04, 0.4, 8), new THREE.MeshBasicMaterial({ color: 0x27ae60 }));
-            barrel.rotateX(Math.PI / 2); 
-            barrel.position.set(0, 0, -0.3);
+            barrel.rotateX(Math.PI / 2); barrel.position.set(0, 0, -0.3);
             gunGroup.add(barrel);
 
             const bodyGeo = new THREE.BoxGeometry(0.08, 0.08, 0.3);
@@ -246,59 +319,116 @@
             camera.add(gunGroup); 
         }
 
-        // 【核心修正】電腦版專用視角與滑鼠鎖定監聽
+        // 💻 電腦操作系統
         function setupPCControls() {
             const canvasElement = renderer.domElement;
-
-            // 點擊畫面時，請求鎖定滑鼠指標
             canvasElement.addEventListener('click', () => {
-                if (!isGameOver) {
-                    canvasElement.requestPointerLock();
-                }
+                if (!isGameOver) canvasElement.requestPointerLock();
             });
 
-            // 監聽滑鼠移動事件 (Pointer Lock 觸發後，使用 movementX/Y 計算)
             document.addEventListener('mousemove', (e) => {
                 if (document.pointerLockElement === canvasElement && !isGameOver) {
                     cameraAngleX -= e.movementX * mouseSensitivity;
-                    // 限制上下看頭的角度，避免翻轉
                     cameraAngleY = Math.max(-Math.PI / 2.5, Math.min(Math.PI / 2.5, cameraAngleY - e.movementY * mouseSensitivity));
-                    
                     camera.quaternion.setFromEuler(new THREE.Euler(cameraAngleY, cameraAngleX, 0, 'YXZ'));
                 }
             });
 
-            // 鍵盤移動 W A S D 偵測
             window.addEventListener('keydown', (e) => {
                 if (isGameOver) return;
-                if (e.code === 'KeyW') keyState.w = true;
-                if (e.code === 'KeyS') keyState.s = true;
-                if (e.code === 'KeyA') keyState.a = true;
-                if (e.code === 'KeyD') keyState.d = true;
+                if (e.code === 'KeyW') kbState.w = 1;
+                if (e.code === 'KeyS') kbState.s = 1;
+                if (e.code === 'KeyA') kbState.a = 1;
+                if (e.code === 'KeyD') kbState.d = 1;
                 if (e.code === 'Space') jump();
+                updatePCMoveDirection();
             });
 
             window.addEventListener('keyup', (e) => {
-                if (e.code === 'KeyW') keyState.w = false;
-                if (e.code === 'KeyS') keyState.s = false;
-                if (e.code === 'KeyA') keyState.a = false;
-                if (e.code === 'KeyD') keyState.d = false;
+                if (e.code === 'KeyW') kbState.w = 0;
+                if (e.code === 'KeyS') kbState.s = 0;
+                if (e.code === 'KeyA') kbState.a = 0;
+                if (e.code === 'KeyD') kbState.d = 0;
+                updatePCMoveDirection();
             });
 
-            // 滑鼠左鍵開火
             window.addEventListener('mousedown', (e) => {
-                if (document.pointerLockElement === canvasElement && e.button === 0) {
-                    shoot();
+                if (document.pointerLockElement === canvasElement && e.button === 0) shoot();
+            });
+        }
+
+        function updatePCMoveDirection() {
+            // 把鍵盤狀態合成為標準 moveDirection 值，格式與手機搖桿對齊
+            moveDirection.x = kbState.d - kbState.a;
+            moveDirection.z = kbState.s - kbState.w;
+        }
+
+        // 📱 手機操作系統
+        function setupMobileControls() {
+            const moveZone = document.getElementById('move-zone');
+            const joystick = document.getElementById('joystick');
+            const shootBtn = document.getElementById('shoot-btn');
+            const jumpBtn = document.getElementById('jump-btn');
+
+            window.addEventListener('touchstart', (e) => {
+                for (let i = 0; i < e.changedTouches.length; i++) {
+                    const t = e.changedTouches[i];
+                    if (e.target === shootBtn) { shoot(); continue; }
+                    if (e.target === jumpBtn) { jump(); continue; }
+                    
+                    // 左半邊畫面控制搖桿
+                    if (t.clientX < window.innerWidth / 2 && moveTouchId === null) {
+                        moveTouchId = t.identifier; 
+                        moveStart.x = t.clientX; 
+                        moveStart.y = t.clientY;
+                        continue;
+                    }
+                    // 右半邊畫面滑動轉視角
+                    if (t.clientX >= window.innerWidth / 2 && lookTouchId === null) {
+                        lookTouchId = t.identifier; 
+                        lookLast.x = t.clientX; 
+                        lookLast.y = t.clientY;
+                    }
+                }
+            });
+
+            window.addEventListener('touchmove', (e) => {
+                for (let i = 0; i < e.touches.length; i++) {
+                    const t = e.touches[i];
+                    if (t.identifier === moveTouchId) {
+                        let dx = t.clientX - moveStart.x; 
+                        let dy = t.clientY - moveStart.y;
+                        const dist = Math.sqrt(dx*dx + dy*dy);
+                        if (dist > 40) { dx = (dx / dist) * 40; dy = (dy / dist) * 40; }
+                        joystick.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+                        
+                        // 寫入標準移動變數
+                        moveDirection.x = dx / 40; 
+                        moveDirection.z = dy / 40;
+                    }
+                    if (t.identifier === lookTouchId) {
+                        cameraAngleX -= (t.clientX - lookLast.x) * 0.006;
+                        cameraAngleY = Math.max(-Math.PI/2.5, Math.min(Math.PI/2.5, cameraAngleY - (t.clientY - lookLast.y) * 0.006));
+                        camera.quaternion.setFromEuler(new THREE.Euler(cameraAngleY, cameraAngleX, 0, 'YXZ'));
+                        lookLast.x = t.clientX; lookLast.y = t.clientY;
+                    }
+                }
+            });
+
+            window.addEventListener('touchend', (e) => {
+                for (let i = 0; i < e.changedTouches.length; i++) {
+                    const t = e.changedTouches[i];
+                    if (t.identifier === moveTouchId) { 
+                        moveTouchId = null; 
+                        joystick.style.transform = 'translate(-50%, -50%)'; 
+                        moveDirection.x = 0; moveDirection.z = 0; 
+                    }
+                    if (t.identifier === lookTouchId) lookTouchId = null;
                 }
             });
         }
 
-        function jump() { 
-            if (!isJumping && !isGameOver) { 
-                isJumping = true; 
-                playerVelocityY = jumpStrength; 
-            } 
-        }
+        function jump() { if (!isJumping && !isGameOver) { isJumping = true; playerVelocityY = jumpStrength; } }
 
         function spawnZombie() {
             if (isGameOver) return;
@@ -308,11 +438,9 @@
             const head = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.5), new THREE.MeshBasicMaterial({ color: 0x00ff00 }));
             head.position.y = 1.15; zombieGroup.add(head);
 
-            let angle = Math.random() * Math.PI * 2; 
-            let distance = 25 + Math.random() * 15;
+            let angle = Math.random() * Math.PI * 2; let distance = 25 + Math.random() * 15;
             zombieGroup.position.set(camera.position.x + Math.cos(angle)*distance, 0, camera.position.z + Math.sin(angle)*distance);
-            scene.add(zombieGroup); 
-            zombies.push(zombieGroup);
+            scene.add(zombieGroup); zombies.push(zombieGroup);
         }
 
         function shoot() {
@@ -340,28 +468,24 @@
             requestAnimationFrame(animate);
             if (isGameOver) return;
 
-            // 跳躍物理
             if (isJumping) {
                 playerVelocityY += gravity; camera.position.y += playerVelocityY;
                 if (camera.position.y <= defaultPlayerHeight) { camera.position.y = defaultPlayerHeight; isJumping = false; playerVelocityY = 0; }
             }
 
-            // 根據鍵盤狀態計算移動
-            let moveX = 0;
-            let moveZ = 0;
-            if (keyState.w) moveZ = -1;
-            if (keyState.s) moveZ = 1;
-            if (keyState.a) moveX = -1;
-            if (keyState.d) moveX = 1;
-
-            if (moveX !== 0 || moveZ !== 0) {
+            // 【核心物理互通】兩端傳入的 moveDirection 值在此處進行標準 3D 位移
+            if (moveDirection.x !== 0 || moveDirection.z !== 0) {
                 const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion); forward.y = 0; forward.normalize();
                 const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion); right.y = 0; right.normalize();
                 
-                camera.position.addScaledVector(forward, -moveZ * playerSpeed);
-                camera.position.addScaledVector(right, moveX * playerSpeed);
+                // 限制斜向移動不會加速 (Normalize)
+                let mag = Math.sqrt(moveDirection.x*moveDirection.x + moveDirection.z*moveDirection.z);
+                let factorX = moveDirection.x / mag;
+                let factorZ = moveDirection.z / mag;
 
-                // 槍枝晃動動效
+                camera.position.addScaledVector(forward, -factorZ * playerSpeed * Math.min(1, mag));
+                camera.position.addScaledVector(right, factorX * playerSpeed * Math.min(1, mag));
+
                 walkTime += 0.2;
                 gunGroup.position.y = -0.22 + Math.sin(walkTime) * 0.015;
                 gunGroup.position.x = 0.25 + Math.cos(walkTime) * 0.01;
@@ -413,7 +537,7 @@
             isGameOver = true; 
             document.getElementById('game-over').style.display = 'block'; 
             clearInterval(spawnTimer);
-            document.exitPointerLock(); // 結束時解鎖滑鼠
+            if(!isMobile) document.exitPointerLock();
             
             let list = getLeaderboard();
             list.push({ name: playerName, score: score });
@@ -424,22 +548,17 @@
         }
 
         function resetGame() { 
-            // 清空舊殭屍與子彈
             zombies.forEach(z => scene.remove(z));
             bullets.forEach(b => scene.remove(b));
-            zombies = [];
-            bullets = [];
-            
+            zombies = []; bullets = [];
             camera.position.set(0, defaultPlayerHeight, 0);
             cameraAngleX = 0; cameraAngleY = 0;
             camera.quaternion.set(0, 0, 0, 1);
-
             document.getElementById('game-over').style.display = 'none'; 
             hp = 100; score = 0; 
             document.getElementById('hp-val').innerText = hp; 
             document.getElementById('score-val').innerText = score; 
             isGameOver = false; 
-            
             clearInterval(spawnTimer);
             spawnTimer = setInterval(spawnZombie, 1800);
         }
