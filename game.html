@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>3D 城市殭屍大戰</title>
+    <title>3D 城市殭屍大戰 - 武器商店版</title>
     <style>
         body {
             margin: 0;
@@ -24,14 +24,23 @@
             z-index: 20;
         }
         #name-btn {
-            margin-top: 8px;
-            padding: 6px 12px;
+            margin-top: 5px;
+            padding: 4px 10px;
             background: #2ecc71;
             color: white;
             border: 1px solid white;
             border-radius: 4px;
             cursor: pointer;
             font-weight: bold;
+            font-size: 12px;
+        }
+        #weapon-info {
+            margin-top: 8px;
+            color: #f1c40f;
+            background: rgba(0,0,0,0.5);
+            padding: 5px;
+            border-radius: 4px;
+            display: inline-block;
         }
         #leaderboard-container {
             position: absolute;
@@ -59,6 +68,88 @@
             justify-content: space-between;
             margin: 5px 0;
         }
+        #shop-btn {
+            position: absolute;
+            top: 15px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 10px 20px;
+            background: #ff5722;
+            color: white;
+            border: 2px solid white;
+            border-radius: 20px;
+            font-weight: bold;
+            font-size: 16px;
+            cursor: pointer;
+            z-index: 30;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+        #shop-ui {
+            display: none;
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.95);
+            border: 3px solid #f1c40f;
+            border-radius: 15px;
+            padding: 20px;
+            color: white;
+            z-index: 200;
+            width: 320px;
+            box-shadow: 0 0 20px rgba(0,0,0,0.7);
+        }
+        #shop-ui h2 {
+            margin: 0 0 15px 0;
+            text-align: center;
+            color: #f1c40f;
+        }
+        .shop-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: rgba(255,255,255,0.1);
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 8px;
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+        .shop-item-info {
+            display: flex;
+            flex-direction: column;
+        }
+        .shop-item-title {
+            font-weight: bold;
+            color: #fff;
+        }
+        .shop-item-cost {
+            font-size: 12px;
+            color: #f1c40f;
+        }
+        .buy-btn {
+            padding: 6px 12px;
+            background: #2ecc71;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        .buy-btn.owned {
+            background: #7f8c8d;
+            cursor: default;
+        }
+        #close-shop {
+            display: block;
+            width: 100%;
+            margin-top: 15px;
+            padding: 8px;
+            background: #e74c3c;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;
+        }
         #crosshair {
             position: absolute;
             top: 50%;
@@ -80,8 +171,6 @@
             border-radius: 50%;
             transform: translate(-50%, -50%);
         }
-        
-        /* --- 手機專用 UI 元素 (預設隱藏，由 JS 判斷啟動) --- */
         #mobile-controls {
             display: none;
         }
@@ -129,8 +218,6 @@
             display: flex; justify-content: center; align-items: center;
             color: white; font-weight: bold; font-size: 20px;
         }
-
-        /* 電腦提示 */
         #pc-hint {
             display: none;
             position: absolute;
@@ -172,9 +259,20 @@
 
     <div id="ui-container">
         <div>擊退殭屍數: <span id="score-val">0</span></div>
+        <div>金錢: $<span id="money-val">0</span></div>
         <div>你的血量: <span id="hp-val">100</span>%</div>
         <div style="margin-top: 5px;">目前玩家: <span id="current-name-val">無名英雄</span></div>
         <button id="name-btn" onclick="changePlayerName(event)">⚙️ 設置名稱</button>
+        <br>
+        <div id="weapon-info">武器: 手槍 (單發)</div>
+    </div>
+
+    <button id="shop-btn" onclick="openShop(event)">🛒 武器商店</button>
+
+    <div id="shop-ui">
+        <h2>🛒 武器補給站</h2>
+        <div id="shop-items-list"></div>
+        <button id="close-shop" onclick="closeShop(event)">關閉商店</button>
     </div>
 
     <div id="leaderboard-container">
@@ -183,7 +281,7 @@
     </div>
 
     <div id="crosshair"></div>
-    <div id="pc-hint">點擊畫面鎖定滑鼠即可轉動視角 (WASD移動/ESC退出)</div>
+    <div id="pc-hint">點擊畫面鎖定滑鼠即可轉動視角 (B或點上方開商店/ESC退出)</div>
 
     <div id="mobile-controls">
         <div id="move-zone"><div id="joystick"></div></div>
@@ -205,19 +303,16 @@
 
         let scene, camera, renderer;
         let zombies = [], bullets = [];
-        let score = 0, hp = 100, isGameOver = false, spawnTimer;
-        let gunGroup, muzzleFlash;
+        let score = 0, hp = 100, money = 0, isGameOver = false, spawnTimer;
+        let gunGroup, muzzleFlash, gunBarrel, gunBodyMesh;
         
-        // 核心互通操作變數
         let cameraAngleX = 0, cameraAngleY = 0; 
-        let moveDirection = { x: 0, z: 0 }; // 核心：手機與電腦共用此移動訊號
+        let moveDirection = { x: 0, z: 0 }; 
         
-        // 電腦端控制標記
         let kbState = { w: 0, s: 0, a: 0, d: 0 };
         const mouseSensitivity = 0.0025;
         const playerSpeed = 0.16;
 
-        // 手機端控制標記
         let moveTouchId = null, moveStart = { x: 0, y: 0 };
         let lookTouchId = null, lookLast = { x: 0, y: 0 };
 
@@ -225,10 +320,21 @@
         const gravity = -0.012, jumpStrength = 0.26, defaultPlayerHeight = 1.6;
         let walkTime = 0;
 
+        let isShopOpen = false;
+        let isMouseDown = false;
+        let lastShotTime = 0;
+
+        const weapons = {
+            pistol: { name: "手槍", cost: 0, dmg: 1, delay: 400, auto: false, color: 0x27ae60, bSize: 0.03, lSize: 0.4 },
+            rifle: { name: "步槍", cost: 150, dmg: 1.5, delay: 150, auto: true, color: 0xd35400, bSize: 0.04, lSize: 0.5 },
+            shotgun: { name: "散彈槍", cost: 300, dmg: 1, delay: 800, auto: false, color: 0x8e44ad, bSize: 0.06, lSize: 0.3, pellets: 5 }
+        };
+        let ownedWeapons = ["pistol"];
+        let currentWeaponKey = "pistol";
+
         let playerName = localStorage.getItem('zombie_player_name') || '無名英雄';
         document.getElementById('current-name-val').innerText = playerName;
 
-        // 偵測是否為行動裝置
         const isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
 
         function changePlayerName(e) {
@@ -265,7 +371,6 @@
             gridHelper.position.y = 0.01; 
             scene.add(gridHelper);
 
-            // 建立測試大樓
             const tGeo = new THREE.BoxGeometry(8, 25, 8);
             const tMat = new THREE.MeshBasicMaterial({ color: 0x2980b9 });
             const testBuilding = new THREE.Mesh(tGeo, tMat);
@@ -285,7 +390,6 @@
 
             createGun();
             
-            // 【核心互通切換】根據裝置載入對應的操作
             if (isMobile) {
                 document.getElementById('mobile-controls').style.display = 'block';
                 setupMobileControls();
@@ -295,21 +399,24 @@
             }
 
             updateLeaderboardUI();
+            renderShop();
             window.addEventListener('resize', onWindowResize);
             spawnTimer = setInterval(spawnZombie, 1800);
         }
 
         function createGun() {
             gunGroup = new THREE.Group();
-            const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.04, 0.4, 8), new THREE.MeshBasicMaterial({ color: 0x27ae60 }));
-            barrel.rotateX(Math.PI / 2); barrel.position.set(0, 0, -0.3);
-            gunGroup.add(barrel);
+            
+            gunBarrel = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.04, 0.4, 8), new THREE.MeshBasicMaterial({ color: 0x27ae60 }));
+            gunBarrel.rotateX(Math.PI / 2); 
+            gunBarrel.position.set(0, 0, -0.3);
+            gunGroup.add(gunBarrel);
 
             const bodyGeo = new THREE.BoxGeometry(0.08, 0.08, 0.3);
             const bodyMat = new THREE.MeshBasicMaterial({ color: 0x2c3e50 });
-            const gunBody = new THREE.Mesh(bodyGeo, bodyMat);
-            gunBody.position.set(0, -0.02, -0.15);
-            gunGroup.add(gunBody);
+            gunBodyMesh = new THREE.Mesh(bodyGeo, bodyMat);
+            gunBodyMesh.position.set(0, -0.02, -0.15);
+            gunGroup.add(gunBodyMesh);
 
             muzzleFlash = new THREE.Mesh(new THREE.SphereGeometry(0.06, 8, 8), new THREE.MeshBasicMaterial({ color: 0xffaa00, transparent: true, opacity: 0 }));
             muzzleFlash.position.set(0, 0, -0.52);
@@ -317,17 +424,35 @@
 
             gunGroup.position.set(0.25, -0.22, -0.45);
             camera.add(gunGroup); 
+            updateGunVisual();
         }
 
-        // 💻 電腦操作系統
+        function updateGunVisual() {
+            const w = weapons[currentWeaponKey];
+            if (!gunBarrel) return;
+            
+            scene.remove(gunBarrel);
+            gunGroup.remove(gunBarrel);
+
+            gunBarrel = new THREE.Mesh(new THREE.CylinderGeometry(w.bSize, w.bSize * 1.2, w.lSize, 8), new THREE.MeshBasicMaterial({ color: w.color }));
+            gunBarrel.rotateX(Math.PI / 2);
+            gunBarrel.position.set(0, 0, -w.lSize/2 - 0.1);
+            gunGroup.add(gunBarrel);
+
+            muzzleFlash.position.set(0, 0, -w.lSize - 0.12);
+            
+            let autoText = w.auto ? "連發" : "單發";
+            document.getElementById('weapon-info').innerText = `武器: ${w.name} (${autoText})`;
+        }
+
         function setupPCControls() {
             const canvasElement = renderer.domElement;
             canvasElement.addEventListener('click', () => {
-                if (!isGameOver) canvasElement.requestPointerLock();
+                if (!isGameOver && !isShopOpen) canvasElement.requestPointerLock();
             });
 
             document.addEventListener('mousemove', (e) => {
-                if (document.pointerLockElement === canvasElement && !isGameOver) {
+                if (document.pointerLockElement === canvasElement && !isGameOver && !isShopOpen) {
                     cameraAngleX -= e.movementX * mouseSensitivity;
                     cameraAngleY = Math.max(-Math.PI / 2.5, Math.min(Math.PI / 2.5, cameraAngleY - e.movementY * mouseSensitivity));
                     camera.quaternion.setFromEuler(new THREE.Euler(cameraAngleY, cameraAngleX, 0, 'YXZ'));
@@ -341,6 +466,10 @@
                 if (e.code === 'KeyA') kbState.a = 1;
                 if (e.code === 'KeyD') kbState.d = 1;
                 if (e.code === 'Space') jump();
+                if (e.code === 'KeyB') {
+                    if (isShopOpen) closeShop();
+                    else openShop();
+                }
                 updatePCMoveDirection();
             });
 
@@ -353,17 +482,22 @@
             });
 
             window.addEventListener('mousedown', (e) => {
-                if (document.pointerLockElement === canvasElement && e.button === 0) shoot();
+                if (document.pointerLockElement === canvasElement && e.button === 0 && !isGameOver && !isShopOpen) {
+                    isMouseDown = true;
+                    triggerShoot();
+                }
+            });
+
+            window.addEventListener('mouseup', (e) => {
+                if (e.button === 0) isMouseDown = false;
             });
         }
 
         function updatePCMoveDirection() {
-            // 把鍵盤狀態合成為標準 moveDirection 值，格式與手機搖桿對齊
             moveDirection.x = kbState.d - kbState.a;
             moveDirection.z = kbState.s - kbState.w;
         }
 
-        // 📱 手機操作系統
         function setupMobileControls() {
             const moveZone = document.getElementById('move-zone');
             const joystick = document.getElementById('joystick');
@@ -373,18 +507,20 @@
             window.addEventListener('touchstart', (e) => {
                 for (let i = 0; i < e.changedTouches.length; i++) {
                     const t = e.changedTouches[i];
-                    if (e.target === shootBtn) { shoot(); continue; }
+                    if (e.target === shootBtn) { 
+                        isMouseDown = true; 
+                        triggerShoot(); 
+                        continue; 
+                    }
                     if (e.target === jumpBtn) { jump(); continue; }
                     
-                    // 左半邊畫面控制搖桿
                     if (t.clientX < window.innerWidth / 2 && moveTouchId === null) {
                         moveTouchId = t.identifier; 
                         moveStart.x = t.clientX; 
                         moveStart.y = t.clientY;
                         continue;
                     }
-                    // 右半邊畫面滑動轉視角
-                    if (t.clientX >= window.innerWidth / 2 && lookTouchId === null) {
+                    if (t.clientX >= window.innerWidth / 2 && lookTouchId === null && !isShopOpen) {
                         lookTouchId = t.identifier; 
                         lookLast.x = t.clientX; 
                         lookLast.y = t.clientY;
@@ -402,7 +538,6 @@
                         if (dist > 40) { dx = (dx / dist) * 40; dy = (dy / dist) * 40; }
                         joystick.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
                         
-                        // 寫入標準移動變數
                         moveDirection.x = dx / 40; 
                         moveDirection.z = dy / 40;
                     }
@@ -424,15 +559,128 @@
                         moveDirection.x = 0; moveDirection.z = 0; 
                     }
                     if (t.identifier === lookTouchId) lookTouchId = null;
+                    if (e.target === shootBtn) isMouseDown = false;
                 }
             });
         }
 
-        function jump() { if (!isJumping && !isGameOver) { isJumping = true; playerVelocityY = jumpStrength; } }
+        function openShop(e) {
+            if(e) e.stopPropagation();
+            isShopOpen = true;
+            document.getElementById('shop-ui').style.display = 'block';
+            if(!isMobile) document.exitPointerLock();
+        }
+
+        function closeShop(e) {
+            if(e) e.stopPropagation();
+            isShopOpen = false;
+            document.getElementById('shop-ui').style.display = 'none';
+        }
+
+        function renderShop() {
+            const listContainer = document.getElementById('shop-items-list');
+            listContainer.innerHTML = '';
+            
+            Object.keys(weapons).forEach(key => {
+                const w = weapons[key];
+                const itemDiv = document.createElement('div');
+                itemDiv.className = 'shop-item';
+                
+                let btnText = ownedWeapons.includes(key) ? "裝備" : `$${w.cost}`;
+                let btnClass = "buy-btn";
+                if (currentWeaponKey === key) {
+                    btnText = "已裝備";
+                    btnClass = "buy-btn owned";
+                }
+
+                itemDiv.innerHTML = `
+                    <div class="shop-item-info">
+                        <span class="shop-item-title" style="color: #${w.color.toString(16)}">${w.name}</span>
+                        <span class="shop-item-cost">威力: ${w.dmg} | 速度: ${w.delay}ms</span>
+                    </div>
+                    <button class="${btnClass}" onclick="buyOrEquip('${key}', event)">${btnText}</button>
+                `;
+                listContainer.appendChild(itemDiv);
+            });
+        }
+
+        function buyOrEquip(key, e) {
+            e.stopPropagation();
+            const w = weapons[key];
+            if (ownedWeapons.includes(key)) {
+                currentWeaponKey = key;
+                updateGunVisual();
+                renderShop();
+            } else {
+                if (money >= w.cost) {
+                    money -= w.cost;
+                    document.getElementById('money-val').innerText = money;
+                    ownedWeapons.push(key);
+                    currentWeaponKey = key;
+                    updateGunVisual();
+                    renderShop();
+                } else {
+                    alert("金錢不足！");
+                }
+            }
+        }
+
+        function jump() { if (!isJumping && !isGameOver && !isShopOpen) { isJumping = true; playerVelocityY = jumpStrength; } }
+
+        function triggerShoot() {
+            if (isGameOver || isShopOpen) return;
+            let now = performance.now();
+            let w = weapons[currentWeaponKey];
+            if (now - lastShotTime >= w.delay) {
+                shoot(w);
+                lastShotTime = now;
+            }
+        }
+
+        function shoot(w) {
+            muzzleFlash.material.opacity = 1; 
+            gunGroup.position.z = -0.38; 
+            setTimeout(() => { 
+                muzzleFlash.material.opacity = 0; 
+                gunGroup.position.z = -0.45;
+            }, 50);
+
+            const gunWorldPos = new THREE.Vector3(); 
+            muzzleFlash.getWorldPosition(gunWorldPos);
+            
+            const baseDir = new THREE.Vector3(); 
+            camera.getWorldDirection(baseDir);
+
+            if (w.pellets) {
+                for (let i = 0; i < w.pellets; i++) {
+                    const bullet = new THREE.Mesh(new THREE.SphereGeometry(0.08, 8, 8), new THREE.MeshBasicMaterial({ color: 0xffff00 }));
+                    bullet.position.copy(gunWorldPos);
+                    
+                    let dir = baseDir.clone();
+                    dir.x += (Math.random() - 0.5) * 0.12;
+                    dir.y += (Math.random() - 0.5) * 0.12;
+                    dir.z += (Math.random() - 0.5) * 0.12;
+                    dir.normalize();
+
+                    bullet.userData = { dir: dir, dmg: w.dmg, born: performance.now() };
+                    scene.add(bullet); 
+                    bullets.push(bullet);
+                }
+            } else {
+                const bullet = new THREE.Mesh(new THREE.SphereGeometry(0.12, 8, 8), new THREE.MeshBasicMaterial({ color: 0xffff00 }));
+                bullet.position.copy(gunWorldPos);
+                bullet.userData = { dir: baseDir, dmg: w.dmg, born: performance.now() };
+                scene.add(bullet); 
+                bullets.push(bullet);
+            }
+        }
 
         function spawnZombie() {
-            if (isGameOver) return;
+            if (isGameOver || isShopOpen) return;
             const zombieGroup = new THREE.Group();
+            
+            let hpMax = 1 + Math.floor(score / 10) * 0.5;
+            
             const body = new THREE.Mesh(new THREE.BoxGeometry(0.9, 1.1, 0.7), new THREE.MeshBasicMaterial({ color: 0x556b2f }));
             body.position.y = 0.55; zombieGroup.add(body);
             const head = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.5), new THREE.MeshBasicMaterial({ color: 0x00ff00 }));
@@ -440,45 +688,29 @@
 
             let angle = Math.random() * Math.PI * 2; let distance = 25 + Math.random() * 15;
             zombieGroup.position.set(camera.position.x + Math.cos(angle)*distance, 0, camera.position.z + Math.sin(angle)*distance);
-            scene.add(zombieGroup); zombies.push(zombieGroup);
-        }
-
-        function shoot() {
-            if (isGameOver) return;
-            muzzleFlash.material.opacity = 1; 
-            gunGroup.position.z = -0.40; 
-            setTimeout(() => { 
-                muzzleFlash.material.opacity = 0; 
-                gunGroup.position.z = -0.45;
-            }, 60);
-
-            const bullet = new THREE.Mesh(new THREE.SphereGeometry(0.12, 8, 8), new THREE.MeshBasicMaterial({ color: 0xffff00 }));
-            const gunWorldPos = new THREE.Vector3(); 
-            muzzleFlash.getWorldPosition(gunWorldPos);
-            bullet.position.copy(gunWorldPos);
             
-            const targetDir = new THREE.Vector3(); 
-            camera.getWorldDirection(targetDir);
-            bullet.userData = { dir: targetDir };
-            scene.add(bullet); 
-            bullets.push(bullet);
+            zombieGroup.userData = { hp: hpMax };
+            
+            scene.add(zombieGroup); zombies.push(zombieGroup);
         }
 
         function animate() {
             requestAnimationFrame(animate);
             if (isGameOver) return;
 
+            if (weapons[currentWeaponKey].auto && isMouseDown) {
+                triggerShoot();
+            }
+
             if (isJumping) {
                 playerVelocityY += gravity; camera.position.y += playerVelocityY;
                 if (camera.position.y <= defaultPlayerHeight) { camera.position.y = defaultPlayerHeight; isJumping = false; playerVelocityY = 0; }
             }
 
-            // 【核心物理互通】兩端傳入的 moveDirection 值在此處進行標準 3D 位移
-            if (moveDirection.x !== 0 || moveDirection.z !== 0) {
+            if ((moveDirection.x !== 0 || moveDirection.z !== 0) && !isShopOpen) {
                 const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion); forward.y = 0; forward.normalize();
                 const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion); right.y = 0; right.normalize();
                 
-                // 限制斜向移動不會加速 (Normalize)
                 let mag = Math.sqrt(moveDirection.x*moveDirection.x + moveDirection.z*moveDirection.z);
                 let factorX = moveDirection.x / mag;
                 let factorZ = moveDirection.z / mag;
@@ -491,24 +723,34 @@
                 gunGroup.position.x = 0.25 + Math.cos(walkTime) * 0.01;
             }
 
-            // 子彈更新
+            let now = performance.now();
             for (let i = bullets.length - 1; i >= 0; i--) {
                 const b = bullets[i]; b.position.addScaledVector(b.userData.dir, 1.4);
-                if (b.position.distanceTo(camera.position) > 80) { scene.remove(b); bullets.splice(i, 1); continue; }
+                if (now - b.userData.born > 1500) { scene.remove(b); bullets.splice(i, 1); continue; }
+                
                 for (let j = zombies.length - 1; j >= 0; j--) {
                     const z = zombies[j];
                     if (b.position.distanceTo(z.position.clone().setY(0.7)) < 1.3) {
-                        scene.remove(z); zombies.splice(j, 1); scene.remove(b); bullets.splice(i, 1);
-                        score++; document.getElementById('score-val').innerText = score; break;
+                        z.userData.hp -= b.userData.dmg;
+                        scene.remove(b); bullets.splice(i, 1);
+                        
+                        if (z.userData.hp <= 0) {
+                            scene.remove(z); zombies.splice(j, 1);
+                            score++; 
+                            let reward = 10 + Math.floor(Math.random() * 11);
+                            money += reward;
+                            document.getElementById('score-val').innerText = score;
+                            document.getElementById('money-val').innerText = money;
+                        }
+                        break;
                     }
                 }
             }
 
-            // 殭屍更新
             for (let j = zombies.length - 1; j >= 0; j--) {
                 const z = zombies[j];
                 const dir = new THREE.Vector3().copy(camera.position).sub(z.position); dir.y = 0; dir.normalize();
-                z.position.addScaledVector(dir, 0.06);
+                if (!isShopOpen) z.position.addScaledVector(dir, 0.06);
                 z.lookAt(camera.position.x, z.position.y, camera.position.z);
                 
                 if (z.position.distanceTo(new THREE.Vector3(camera.position.x, 0, camera.position.z)) < 2.0) {
@@ -555,9 +797,14 @@
             cameraAngleX = 0; cameraAngleY = 0;
             camera.quaternion.set(0, 0, 0, 1);
             document.getElementById('game-over').style.display = 'none'; 
-            hp = 100; score = 0; 
+            hp = 100; score = 0; money = 0;
+            ownedWeapons = ["pistol"];
+            currentWeaponKey = "pistol";
+            updateGunVisual();
+            renderShop();
             document.getElementById('hp-val').innerText = hp; 
             document.getElementById('score-val').innerText = score; 
+            document.getElementById('money-val').innerText = money; 
             isGameOver = false; 
             clearInterval(spawnTimer);
             spawnTimer = setInterval(spawnZombie, 1800);
