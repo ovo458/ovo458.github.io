@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>3D 城市殭屍大戰</title>
+    <title>3D 城市殭屍大戰 - 道具排行版</title>
     <style>
         body {
             margin: 0;
@@ -630,7 +630,6 @@
 
             scene = new THREE.Scene();
             scene.background = new THREE.Color(0xa5b1c2); 
-            scene.fog = null; 
 
             camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 500);
             camera.position.set(0, defaultPlayerHeight, 0); 
@@ -1149,13 +1148,27 @@
             document.exitPointerLock(); saveUserData();
             
             let waveList = getLeaderboard("wave");
-            waveList.push({ name: currentAccount, score: currentWave });
+            let existingWaveUser = waveList.find(item => item.name === currentAccount);
+            if (existingWaveUser) {
+                if (currentWave > existingWaveUser.score) {
+                    existingWaveUser.score = currentWave;
+                }
+            } else {
+                waveList.push({ name: currentAccount, score: currentWave });
+            }
             waveList.sort((a, b) => b.score - a.score);
             waveList = waveList.slice(0, 3);
             localStorage.setItem('zombie_city_wave_scores', JSON.stringify(waveList));
 
             let moneyList = getLeaderboard("money");
-            moneyList.push({ name: currentAccount, score: money });
+            let existingMoneyUser = moneyList.find(item => item.name === currentAccount);
+            if (existingMoneyUser) {
+                if (money > existingMoneyUser.score) {
+                    existingMoneyUser.score = money;
+                }
+            } else {
+                moneyList.push({ name: currentAccount, score: money });
+            }
             moneyList.sort((a, b) => b.score - a.score);
             moneyList = moneyList.slice(0, 3);
             localStorage.setItem('zombie_city_money_scores', JSON.stringify(moneyList));
