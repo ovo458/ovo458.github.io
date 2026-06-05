@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>3D 城市殭屍大戰</title>
+    <title>3D 城市殭屍大戰 - 波數無盡版</title>
     <style>
         body {
             margin: 0;
@@ -355,12 +355,26 @@
             border: none;
             margin-top: 10px;
         }
+        #wave-announcement {
+            position: absolute;
+            top: 30%; left: 50%;
+            transform: translate(-50%, -50%);
+            color: #f1c40f;
+            font-size: 42px;
+            font-weight: bold;
+            text-shadow: 3px 3px 6px rgba(0,0,0,0.9);
+            z-index: 15;
+            pointer-events: none;
+            display: none;
+            text-align: center;
+        }
     </style>
     <script src="https://unpkg.com/three@0.128.0/build/three.min.js"></script>
 </head>
 <body>
 
     <div id="hit-overlay"></div>
+    <div id="wave-announcement">WAVE 1</div>
 
     <div id="auth-screen">
         <div class="auth-box" id="auth-login">
@@ -389,8 +403,9 @@
 
     <div id="ui-container">
         <div>目前玩家: <span id="current-name-val">未登入</span></div>
+        <div style="font-size: 20px; color: #f1c40f; margin: 3px 0;">目前波數: 第 <span id="wave-val">1</span> 波</div>
+        <div>場上剩餘殭屍: <span id="zombie-left-val">0</span> 隻</div>
         <div>金幣: $<span id="money-val">0</span></div>
-        <div>擊退殭屍: <span id="score-val">0</span></div>
         <div>生命值: <span id="hp-val">100</span>%</div>
         <button id="logout-btn" onclick="logout()">登出帳號</button>
         <br>
@@ -406,7 +421,7 @@
     </div>
 
     <div id="leaderboard-container">
-        <h3>🏆 歷史排行</h3>
+        <h3>🏆 最高波數排行</h3>
         <div id="leaderboard-list"></div>
     </div>
 
@@ -430,9 +445,15 @@
         let scene, camera, renderer;
         let ambientLight, dirLight;
         let zombies = [], bullets = [];
-        let score = 0, hp = 100, money = 0, isGameOver = false, spawnTimer;
+        let hp = 100, money = 0, isGameOver = false;
         let gunGroup, muzzleFlash;
         
+        let currentWave = 1;
+        let zombiesToSpawnThisWave = 0;
+        let zombiesSpawnedSoFar = 0;
+        let waveSpawnInterval = null;
+        let isWaveTransition = false;
+
         let cameraAngleX = 0, cameraAngleY = 0; 
         let moveDirection = { x: 0, z: 0 }; 
         
@@ -603,8 +624,57 @@
             updateLeaderboardUI();
             renderShop();
             window.addEventListener('resize', onWindowResize);
-            spawnTimer = setInterval(spawnZombie, 1500);
+            
+            startWave(1);
             animate();
+        }
+
+        function startWave(waveNum) {
+            isWaveTransition = false;
+            currentWave = waveNum;
+            zombiesSpawnedSoFar = 0;
+            zombiesToSpawnThisWave = 4 + currentWave * 2; 
+            
+            document.getElementById('wave-val').innerText = currentWave;
+            document.getElementById('zombie-left-val').innerText = zombiesToSpawnThisWave;
+
+            const announce = document.getElementById('wave-announcement');
+            announce.innerText = `第 ${currentWave} 波 開始`;
+            announce.style.display = 'block';
+            setTimeout(() => { announce.style.display = 'none'; }, 2000);
+
+            if (waveSpawnInterval) clearInterval(waveSpawnInterval);
+            waveSpawnInterval = setInterval(() => {
+                if (isGameOver || isShopOpen || isAdminOpen || !currentAccount) return;
+                if (zombiesSpawnedSoFar < zombiesToSpawnThisWave) {
+                    spawnZombie();
+                    zombiesSpawnedSoFar++;
+                } else {
+                    clearInterval(waveSpawnInterval);
+                }
+            }, 1200);
+        }
+
+        function checkWaveStatus() {
+            if (isWaveTransition || isGameOver) return;
+            
+            let totalRemaining = (zombiesToSpawnThisWave - zombiesSpawnedSoFar) + zombies.length;
+            document.getElementById('zombie-left-val').innerText = totalRemaining;
+
+            if (zombiesSpawnedSoFar >= zombiesToSpawnThisWave && zombies.length === 0) {
+                isWaveTransition = true;
+                money += 50 + currentWave * 10; 
+                document.getElementById('money-val').innerText = money;
+                saveUserData();
+
+                const announce = document.getElementById('wave-announcement');
+                announce.innerText = `第 ${currentWave} 波 清理完畢\n下波即將開始...`;
+                announce.style.display = 'block';
+
+                setTimeout(() => {
+                    startWave(currentWave + 1);
+                }, 3500);
+            }
         }
 
         function checkSecretCode(key) {
@@ -858,14 +928,17 @@
         function spawnZombie() {
             if (isGameOver || isShopOpen || isAdminOpen || !currentAccount) return;
             const zombieGroup = new THREE.Group();
-            let hpMax = 1 + Math.floor(score / 8) * 0.6;
+            
+            let hpMax = 1 + currentWave * 0.05; 
+            let zombieSpeed = 0.075 + currentWave * 0.003; 
+
             const body = new THREE.Mesh(new THREE.BoxGeometry(0.8, 1.2, 0.6), new THREE.MeshStandardMaterial({ color: 0x445433, roughness: 0.8 }));
             body.position.y = 0.6; zombieGroup.add(body);
             const head = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.45, 0.45), new THREE.MeshStandardMaterial({ color: 0x10ac84, roughness: 0.7 }));
             head.position.y = 1.25; zombieGroup.add(head);
             let angle = Math.random() * Math.PI * 2; let distance = 30 + Math.random() * 15;
             zombieGroup.position.set(camera.position.x + Math.cos(angle)*distance, 0, camera.position.z + Math.sin(angle)*distance);
-            zombieGroup.userData = { hp: hpMax };
+            zombieGroup.userData = { hp: hpMax, speed: zombieSpeed };
             scene.add(zombieGroup); zombies.push(zombieGroup);
         }
 
@@ -910,9 +983,10 @@
                     if (b.position.distanceTo(z.position.clone().setY(z.position.y + 0.8)) < 1.2) {
                         z.userData.hp -= b.userData.dmg; scene.remove(b); bullets.splice(i, 1);
                         if (z.userData.hp <= 0) {
-                            scene.remove(z); zombies.splice(j, 1); score++; money += 15 + Math.floor(Math.random() * 16);
-                            document.getElementById('score-val').innerText = score; document.getElementById('money-val').innerText = money;
+                            scene.remove(z); zombies.splice(j, 1); money += 10 + Math.floor(Math.random() * 11);
+                            document.getElementById('money-val').innerText = money;
                             saveUserData();
+                            checkWaveStatus();
                         }
                         break;
                     }
@@ -921,7 +995,7 @@
 
             for (let j = zombies.length - 1; j >= 0; j--) {
                 const z = zombies[j]; const dir = new THREE.Vector3().copy(camera.position).sub(z.position); dir.y = 0; dir.normalize();
-                if (!isShopOpen && !isAdminOpen) z.position.addScaledVector(dir, 0.075);
+                if (!isShopOpen && !isAdminOpen) z.position.addScaledVector(dir, z.userData.speed);
                 z.lookAt(camera.position.x, z.position.y, camera.position.z);
                 
                 if (z.position.distanceTo(new THREE.Vector3(camera.position.x, z.position.y, camera.position.z)) < 1.8) {
@@ -930,34 +1004,37 @@
                         hp -= 25; document.getElementById('hp-val').innerText = Math.max(0, hp);
                         const overlay = document.getElementById('hit-overlay'); overlay.style.backgroundColor = 'rgba(231, 76, 60, 0.4)';
                         setTimeout(() => overlay.style.backgroundColor = 'rgba(231, 76, 60, 0)', 100);
-                        if (hp <= 0) endGame();
+                        if (hp <= 0) { endGame(); } else { checkWaveStatus(); }
                     }
                 }
             }
             if (renderer && scene && camera) renderer.render(scene, camera);
         }
 
-        function getLeaderboard() { const data = localStorage.getItem('zombie_city_scores'); return data ? JSON.parse(data) : [{name: "老兵", score: 20}, {name: "倖存者", score: 5}]; }
+        function getLeaderboard() { const data = localStorage.getItem('zombie_city_wave_scores'); return data ? JSON.parse(data) : [{name: "傳奇老兵", score: 10}, {name: "倖存者", score: 3}]; }
         function updateLeaderboardUI() {
             const container = document.getElementById('leaderboard-list'); if(!container) return; container.innerHTML = '';
             getLeaderboard().forEach((item, index) => {
                 const div = document.createElement('div'); div.className = 'leaderboard-item';
-                div.innerHTML = `<span>${index + 1}. ${item.name}</span><span>${item.score} 級</span>`; container.appendChild(div);
+                div.innerHTML = `<span>${index + 1}. ${item.name}</span><span>第 ${item.score} 波</span>`; container.appendChild(div);
             });
         }
 
         function endGame() {
-            isGameOver = true; document.getElementById('game-over').style.display = 'block'; clearInterval(spawnTimer); document.exitPointerLock(); saveUserData();
-            let list = getLeaderboard(); list.push({ name: currentAccount, score: score }); list.sort((a, b) => b.score - a.score);
-            list = list.slice(0, 3); localStorage.setItem('zombie_city_scores', JSON.stringify(list)); updateLeaderboardUI();
+            isGameOver = true; document.getElementById('game-over').style.display = 'block'; 
+            if (waveSpawnInterval) clearInterval(waveSpawnInterval); 
+            document.exitPointerLock(); saveUserData();
+            let list = getLeaderboard(); list.push({ name: currentAccount, score: currentWave }); list.sort((a, b) => b.score - a.score);
+            list = list.slice(0, 3); localStorage.setItem('zombie_city_wave_scores', JSON.stringify(list)); updateLeaderboardUI();
         }
 
         function resetGame() { 
             zombies.forEach(z => scene.remove(z)); bullets.forEach(b => scene.remove(b)); zombies = []; bullets = [];
             camera.position.set(0, defaultPlayerHeight, 0); cameraAngleX = 0; cameraAngleY = 0; camera.quaternion.set(0, 0, 0, 1);
-            document.getElementById('game-over').style.display = 'none'; hp = 100; score = 0; 
-            document.getElementById('hp-val').innerText = hp; document.getElementById('score-val').innerText = score; 
-            isGameOver = false; clearInterval(spawnTimer); spawnTimer = setInterval(spawnZombie, 1500);
+            document.getElementById('game-over').style.display = 'none'; hp = 100; 
+            document.getElementById('hp-val').innerText = hp; 
+            isGameOver = false; 
+            startWave(1);
         }
         function onWindowResize() { if(camera && renderer) { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); } }
     </script>
