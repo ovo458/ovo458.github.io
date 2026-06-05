@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>3D 城市殭屍大戰 - 波數無盡版</title>
+    <title>3D 城市殭屍大戰</title>
     <style>
         body {
             margin: 0;
@@ -96,6 +96,28 @@
             border-radius: 4px;
             display: inline-block;
         }
+        #inventory-container {
+            margin-top: 8px;
+            background: rgba(0,0,0,0.6);
+            padding: 8px;
+            border-radius: 6px;
+            border: 1px solid #3498db;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .inv-slot {
+            background: #2c3e50;
+            border: 2px solid #3498db;
+            padding: 4px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            color: #fff;
+        }
+        .inv-slot:hover {
+            background: #2980b9;
+        }
         #leaderboard-container {
             position: absolute;
             top: 15px;
@@ -106,16 +128,31 @@
             padding: 10px 15px;
             color: white;
             font-size: 14px;
-            min-width: 150px;
+            min-width: 180px;
             z-index: 20;
         }
-        #leaderboard-container h3 {
-            margin: 0 0 8px 0;
-            font-size: 15px;
-            color: #2ecc71;
-            text-align: center;
+        #leaderboard-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
             border-bottom: 1px solid rgba(255,255,255,0.2);
             padding-bottom: 5px;
+            margin-bottom: 8px;
+        }
+        #leaderboard-container h3 {
+            margin: 0;
+            font-size: 14px;
+            color: #2ecc71;
+        }
+        #toggle-lb-btn {
+            background: #27ae60;
+            border: 1px solid white;
+            color: white;
+            border-radius: 3px;
+            padding: 2px 6px;
+            font-size: 11px;
+            cursor: pointer;
+            font-weight: bold;
         }
         .leaderboard-item {
             display: flex;
@@ -410,6 +447,10 @@
         <button id="logout-btn" onclick="logout()">登出帳號</button>
         <br>
         <div id="weapon-info">武器: 未載入</div>
+        <div id="inventory-container">
+            <span>🎒 道具欄:</span>
+            <div class="inv-slot" id="medkit-slot" onclick="useMedkit(event)">➕ 醫療包 (x0)</div>
+        </div>
     </div>
 
     <button id="shop-btn" onclick="openShop(event)">🛒 武器商店</button>
@@ -421,12 +462,15 @@
     </div>
 
     <div id="leaderboard-container">
-        <h3>🏆 最高波數排行</h3>
+        <div id="leaderboard-header">
+            <h3 id="lb-title-text">🏆 最高波數排行</h3>
+            <button id="toggle-lb-btn" onclick="toggleLeaderboardType(event)">切換金幣榜</button>
+        </div>
         <div id="leaderboard-list"></div>
     </div>
 
     <div id="crosshair"></div>
-    <div id="pc-hint">點擊畫面鎖定視角 (B鍵開啟商店/ESC釋放滑鼠)</div>
+    <div id="pc-hint">點擊畫面鎖定視角 (B鍵商店/H鍵補血/ESC釋放滑鼠)</div>
 
     <div id="mobile-controls">
         <div id="move-zone"><div id="joystick"></div></div>
@@ -453,6 +497,9 @@
         let zombiesSpawnedSoFar = 0;
         let waveSpawnInterval = null;
         let isWaveTransition = false;
+
+        let medkitCount = 0;
+        let currentLbType = "wave"; 
 
         let cameraAngleX = 0, cameraAngleY = 0; 
         let moveDirection = { x: 0, z: 0 }; 
@@ -534,7 +581,7 @@
                     return; 
                 }
 
-                db[user] = { password: pass, money: 0, owned: ["glock"], current: "glock" };
+                db[user] = { password: pass, money: 0, owned: ["glock"], current: "glock", medkits: 0 };
                 localStorage.setItem('game_accounts', JSON.stringify(db));
                 alert("🎉 註冊成功！請返回登入畫面。");
                 document.getElementById('reg-user').value = '';
@@ -549,9 +596,11 @@
                 money = db[user].money || 0;
                 ownedWeapons = db[user].owned || ["glock"];
                 currentWeaponKey = db[user].current || "glock";
+                medkitCount = db[user].medkits || 0;
 
                 document.getElementById('current-name-val').innerText = currentAccount;
                 document.getElementById('money-val').innerText = money;
+                updateInventoryUI();
                 
                 initGameEngine();
                 document.getElementById('auth-screen').style.display = 'none';
@@ -566,6 +615,7 @@
                 db[currentAccount].money = money;
                 db[currentAccount].owned = ownedWeapons;
                 db[currentAccount].current = currentWeaponKey;
+                db[currentAccount].medkits = medkitCount;
                 localStorage.setItem('game_accounts', JSON.stringify(db));
             }
         }
@@ -677,6 +727,23 @@
             }
         }
 
+        function updateInventoryUI() {
+            document.getElementById('medkit-slot').innerText = `➕ 醫療包 (x${medkitCount})`;
+        }
+
+        function useMedkit(e) {
+            if(e) e.stopPropagation();
+            if (isGameOver || !currentAccount) return;
+            if (medkitCount <= 0) { alert("你沒有醫療包了！請先去商店購買。"); return; }
+            if (hp >= 100) { alert("生命值已滿，不需要使用醫療包！"); return; }
+            
+            medkitCount--;
+            hp = Math.min(100, hp + 50);
+            document.getElementById('hp-val').innerText = hp;
+            updateInventoryUI();
+            saveUserData();
+        }
+
         function checkSecretCode(key) {
             codeProgress.push(key);
             let targetKey = secretCode[codeProgress.length - 1];
@@ -770,7 +837,7 @@
         function setupPCControls() {
             const canvasElement = document.body;
             window.addEventListener('click', (e) => {
-                if (!isGameOver && !isShopOpen && !isAdminOpen && currentAccount !== null && e.target.tagName !== 'BUTTON' && e.target.tagName !== 'INPUT') {
+                if (!isGameOver && !isShopOpen && !isAdminOpen && currentAccount !== null && e.target.tagName !== 'BUTTON' && e.target.tagName !== 'INPUT' && !e.target.classList.contains('inv-slot')) {
                     document.body.requestPointerLock();
                 }
             });
@@ -793,6 +860,7 @@
                 if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') kbState.shift = 1;
                 if (e.code === 'Space') { if (!flyMode) jump(); }
                 if (e.code === 'KeyB') { if (isShopOpen) closeShop(); else openShop(); }
+                if (e.code === 'KeyH') { useMedkit(); }
                 updatePCMoveDirection();
             });
 
@@ -873,6 +941,17 @@
 
         function renderShop() {
             const listContainer = document.getElementById('shop-items-list'); listContainer.innerHTML = '';
+            
+            const medkitDiv = document.createElement('div'); medkitDiv.className = 'shop-item';
+            medkitDiv.innerHTML = `
+                <div class="shop-item-info">
+                    <span class="shop-item-title">➕ 醫療包 (恢復50% HP)</span>
+                    <span class="shop-item-cost">價格: $50</span>
+                </div>
+                <button class="buy-btn" onclick="buyMedkit(event)">購買</button>
+            `;
+            listContainer.appendChild(medkitDiv);
+
             Object.keys(weapons).forEach(key => {
                 const w = weapons[key]; const itemDiv = document.createElement('div'); itemDiv.className = 'shop-item';
                 let btnText = ownedWeapons.includes(key) ? "裝備" : `$${w.cost}`; let btnClass = "buy-btn";
@@ -886,6 +965,19 @@
                 `;
                 listContainer.appendChild(itemDiv);
             });
+        }
+
+        function buyMedkit(e) {
+            e.stopPropagation();
+            if (money >= 50) {
+                money -= 50;
+                medkitCount++;
+                document.getElementById('money-val').innerText = money;
+                updateInventoryUI();
+                saveUserData();
+            } else {
+                alert("金幣不足！需要 $50。");
+            }
         }
 
         function buyOrEquip(key, e) {
@@ -1011,12 +1103,43 @@
             if (renderer && scene && camera) renderer.render(scene, camera);
         }
 
-        function getLeaderboard() { const data = localStorage.getItem('zombie_city_wave_scores'); return data ? JSON.parse(data) : [{name: "傳奇老兵", score: 10}, {name: "倖存者", score: 3}]; }
+        function getLeaderboard(type) { 
+            if (type === "wave") {
+                const data = localStorage.getItem('zombie_city_wave_scores'); 
+                return data ? JSON.parse(data) : [{name: "傳奇老兵", score: 10}, {name: "倖存者", score: 3}];
+            } else {
+                const data = localStorage.getItem('zombie_city_money_scores'); 
+                return data ? JSON.parse(data) : [{name: "金幣大亨", score: 5000}, {name: "拾荒者", score: 200}];
+            }
+        }
+
+        function toggleLeaderboardType(e) {
+            if(e) e.stopPropagation();
+            if (currentLbType === "wave") {
+                currentLbType = "money";
+                document.getElementById('lb-title-text').innerText = "💰 富豪金幣排行";
+                document.getElementById('toggle-lb-btn').innerText = "切換波數榜";
+            } else {
+                currentLbType = "wave";
+                document.getElementById('lb-title-text').innerText = "🏆 最高波數排行";
+                document.getElementById('toggle-lb-btn').innerText = "切換金幣榜";
+            }
+            updateLeaderboardUI();
+        }
+
         function updateLeaderboardUI() {
             const container = document.getElementById('leaderboard-list'); if(!container) return; container.innerHTML = '';
-            getLeaderboard().forEach((item, index) => {
+            const suffix = currentLbType === "wave" ? "波" : "元";
+            const prefix = currentLbType === "wave" ? "第 " : "$";
+            
+            getLeaderboard(currentLbType).forEach((item, index) => {
                 const div = document.createElement('div'); div.className = 'leaderboard-item';
-                div.innerHTML = `<span>${index + 1}. ${item.name}</span><span>第 ${item.score} 波</span>`; container.appendChild(div);
+                if(currentLbType === "wave") {
+                    div.innerHTML = `<span>${index + 1}. ${item.name}</span><span>${prefix}${item.score} ${suffix}</span>`;
+                } else {
+                    div.innerHTML = `<span>${index + 1}. ${item.name}</span><span>${prefix}${item.score}</span>`;
+                }
+                container.appendChild(div);
             });
         }
 
@@ -1024,8 +1147,20 @@
             isGameOver = true; document.getElementById('game-over').style.display = 'block'; 
             if (waveSpawnInterval) clearInterval(waveSpawnInterval); 
             document.exitPointerLock(); saveUserData();
-            let list = getLeaderboard(); list.push({ name: currentAccount, score: currentWave }); list.sort((a, b) => b.score - a.score);
-            list = list.slice(0, 3); localStorage.setItem('zombie_city_wave_scores', JSON.stringify(list)); updateLeaderboardUI();
+            
+            let waveList = getLeaderboard("wave");
+            waveList.push({ name: currentAccount, score: currentWave });
+            waveList.sort((a, b) => b.score - a.score);
+            waveList = waveList.slice(0, 3);
+            localStorage.setItem('zombie_city_wave_scores', JSON.stringify(waveList));
+
+            let moneyList = getLeaderboard("money");
+            moneyList.push({ name: currentAccount, score: money });
+            moneyList.sort((a, b) => b.score - a.score);
+            moneyList = moneyList.slice(0, 3);
+            localStorage.setItem('zombie_city_money_scores', JSON.stringify(moneyList));
+
+            updateLeaderboardUI();
         }
 
         function resetGame() { 
